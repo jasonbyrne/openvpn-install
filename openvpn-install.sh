@@ -7,6 +7,10 @@
 # your Debian/Ubuntu/CentOS box. It has been designed to be as unobtrusive and
 # universal as possible.
 
+# Settings
+PROTOCOL=udp
+PORT=1194
+DNS=3
 
 # Detect Debian users running the script with "sh" instead of bash
 if readlink /proc/$$/exe | grep -qs "dash"; then
@@ -50,17 +54,13 @@ if [[ "$IP" = "" ]]; then
 		IP=$(wget -4qO- "http://whatismyip.akamai.com/")
 fi
 
-PORT=1194
-PROTOCOL=udp
-DNS=3
-
 if [[ -e /etc/openvpn/server.conf ]]; then
 	while :
 	do
 	clear
 		echo "Looks like OpenVPN is already installed"
 		echo ""
-		echo "Do you want to remove it?"
+		echo "What do you want to do?"
 		echo "   1) Remove OpenVPN"
 		echo "   2) Exit"
 		read -p "Select an option [1-4]: " option
@@ -115,14 +115,14 @@ if [[ -e /etc/openvpn/server.conf ]]; then
 			fi
 			exit
 			;;
-			4) exit;;
+			2) exit;;
 		esac
 	done
 else
 	clear
 	echo 'Welcome to this quick OpenVPN "road warrior" installer'
 	echo ""
-
+	
 	if [[ "$OS" = 'debian' ]]; then
 		apt-get update
 		apt-get install openvpn iptables openssl ca-certificates -y
@@ -143,12 +143,11 @@ else
 	chown -R root:root /etc/openvpn/easy-rsa/
 	rm -rf ~/EasyRSA-3.0.1.tgz
 	cd /etc/openvpn/easy-rsa/
-	# Create the PKI, set up the CA, the DH params and the server + client certificates
+	# Create the PKI, set up the CA, the DH params and the server certificates
 	./easyrsa init-pki
 	./easyrsa --batch build-ca nopass
 	./easyrsa gen-dh
 	./easyrsa build-server-full server nopass
-	./easyrsa build-client-full $CLIENT nopass
 	./easyrsa gen-crl
 	# Move the stuff we need
 	cp pki/ca.crt pki/private/ca.key pki/dh.pem pki/issued/server.crt pki/private/server.key /etc/openvpn/easy-rsa/pki/crl.pem /etc/openvpn
@@ -279,3 +278,17 @@ exit 0' > $RCLOCAL
 			chkconfig openvpn on
 		fi
 	fi
+	# Try to detect a NATed connection and ask about it to potential LowEndSpirit users
+	EXTERNALIP=$(wget -4qO- "http://whatismyip.akamai.com/")
+	if [[ "$IP" != "$EXTERNALIP" ]]; then
+		echo ""
+		echo "Looks like your server is behind a NAT!"
+		echo ""
+		echo "If your server is NATed (e.g. LowEndSpirit), I need to know the external IP"
+		echo "If that's not the case, just ignore this and leave the next field blank"
+		read -p "External IP: " -e USEREXTERNALIP
+		if [[ "$USEREXTERNALIP" != "" ]]; then
+			IP=$USEREXTERNALIP
+		fi
+	fi
+fi
