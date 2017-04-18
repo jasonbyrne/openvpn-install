@@ -42,23 +42,6 @@ else
 	exit 5
 fi
 
-newclient () {
-	# Generates the custom client.ovpn
-	cp /etc/openvpn/client-common.txt ~/$1.ovpn
-	echo "<ca>" >> ~/$1.ovpn
-	cat /etc/openvpn/easy-rsa/pki/ca.crt >> ~/$1.ovpn
-	echo "</ca>" >> ~/$1.ovpn
-	echo "<cert>" >> ~/$1.ovpn
-	cat /etc/openvpn/easy-rsa/pki/issued/$1.crt >> ~/$1.ovpn
-	echo "</cert>" >> ~/$1.ovpn
-	echo "<key>" >> ~/$1.ovpn
-	cat /etc/openvpn/easy-rsa/pki/private/$1.key >> ~/$1.ovpn
-	echo "</key>" >> ~/$1.ovpn
-	echo "<tls-auth>" >> ~/$1.ovpn
-	cat /etc/openvpn/ta.key >> ~/$1.ovpn
-	echo "</tls-auth>" >> ~/$1.ovpn
-}
-
 # Try to get our IP from the system and fallback to the Internet.
 # I do this to make the script compatible with NATed servers (lowendspirit.com)
 # and to avoid getting an IPv6.
@@ -67,65 +50,22 @@ if [[ "$IP" = "" ]]; then
 		IP=$(wget -4qO- "http://whatismyip.akamai.com/")
 fi
 
+PORT=1194
+PROTOCOL=udp
+DNS=3
+
 if [[ -e /etc/openvpn/server.conf ]]; then
 	while :
 	do
 	clear
 		echo "Looks like OpenVPN is already installed"
 		echo ""
-		echo "What do you want to do?"
-		echo "   1) Add a new user"
-		echo "   2) Revoke an existing user"
-		echo "   3) Remove OpenVPN"
-		echo "   4) Exit"
+		echo "Do you want to remove it?"
+		echo "   1) Remove OpenVPN"
+		echo "   2) Exit"
 		read -p "Select an option [1-4]: " option
 		case $option in
 			1) 
-			echo ""
-			echo "Tell me a name for the client certificate"
-			echo "Please, use one word only, no special characters"
-			read -p "Client name: " -e -i client CLIENT
-			cd /etc/openvpn/easy-rsa/
-			./easyrsa build-client-full $CLIENT nopass
-			# Generates the custom client.ovpn
-			newclient "$CLIENT"
-			echo ""
-			echo "Client $CLIENT added, configuration is available at" ~/"$CLIENT.ovpn"
-			exit
-			;;
-			2)
-			# This option could be documented a bit better and maybe even be simplimplified
-			# ...but what can I say, I want some sleep too
-			NUMBEROFCLIENTS=$(tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep -c "^V")
-			if [[ "$NUMBEROFCLIENTS" = '0' ]]; then
-				echo ""
-				echo "You have no existing clients!"
-				exit 6
-			fi
-			echo ""
-			echo "Select the existing client certificate you want to revoke"
-			tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | nl -s ') '
-			if [[ "$NUMBEROFCLIENTS" = '1' ]]; then
-				read -p "Select one client [1]: " CLIENTNUMBER
-			else
-				read -p "Select one client [1-$NUMBEROFCLIENTS]: " CLIENTNUMBER
-			fi
-			CLIENT=$(tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | sed -n "$CLIENTNUMBER"p)
-			cd /etc/openvpn/easy-rsa/
-			./easyrsa --batch revoke $CLIENT
-			./easyrsa gen-crl
-			rm -rf pki/reqs/$CLIENT.req
-			rm -rf pki/private/$CLIENT.key
-			rm -rf pki/issued/$CLIENT.crt
-			rm -rf /etc/openvpn/crl.pem
-			cp /etc/openvpn/easy-rsa/pki/crl.pem /etc/openvpn/crl.pem
-			# CRL is read with each client connection, when OpenVPN is dropped to nobody
-			chown nobody:$GROUPNAME /etc/openvpn/crl.pem
-			echo ""
-			echo "Certificate for client $CLIENT revoked"
-			exit
-			;;
-			3) 
 			echo ""
 			read -p "Do you really want to remove OpenVPN? [y/n]: " -e -i n REMOVE
 			if [[ "$REMOVE" = 'y' ]]; then
@@ -182,45 +122,7 @@ else
 	clear
 	echo 'Welcome to this quick OpenVPN "road warrior" installer'
 	echo ""
-	# OpenVPN setup and first user creation
-	echo "I need to ask you a few questions before starting the setup"
-	echo "You can leave the default options and just press enter if you are ok with them"
-	echo ""
-	echo "First I need to know the IPv4 address of the network interface you want OpenVPN"
-	echo "listening to."
-	read -p "IP address: " -e -i $IP IP
-	echo ""
-	echo "Which protocol do you want for OpenVPN connections?"
-	echo "   1) UDP (recommended)"
-	echo "   2) TCP"
-	read -p "Protocol [1-2]: " -e -i 1 PROTOCOL
-	case $PROTOCOL in
-		1) 
-		PROTOCOL=udp
-		;;
-		2) 
-		PROTOCOL=tcp
-		;;
-	esac
-	echo ""
-	echo "What port do you want OpenVPN listening to?"
-	read -p "Port: " -e -i 1194 PORT
-	echo ""
-	echo "Which DNS do you want to use with the VPN?"
-	echo "   1) Current system resolvers"
-	echo "   2) Google"
-	echo "   3) OpenDNS"
-	echo "   4) NTT"
-	echo "   5) Hurricane Electric"
-	echo "   6) Verisign"
-	read -p "DNS [1-6]: " -e -i 1 DNS
-	echo ""
-	echo "Finally, tell me your name for the client certificate"
-	echo "Please, use one word only, no special characters"
-	read -p "Client name: " -e -i client CLIENT
-	echo ""
-	echo "Okay, that was all I needed. We are ready to setup your OpenVPN server now"
-	read -n1 -r -p "Press any key to continue..."
+
 	if [[ "$OS" = 'debian' ]]; then
 		apt-get update
 		apt-get install openvpn iptables openssl ca-certificates -y
@@ -377,41 +279,3 @@ exit 0' > $RCLOCAL
 			chkconfig openvpn on
 		fi
 	fi
-	# Try to detect a NATed connection and ask about it to potential LowEndSpirit users
-	EXTERNALIP=$(wget -4qO- "http://whatismyip.akamai.com/")
-	if [[ "$IP" != "$EXTERNALIP" ]]; then
-		echo ""
-		echo "Looks like your server is behind a NAT!"
-		echo ""
-		echo "If your server is NATed (e.g. LowEndSpirit), I need to know the external IP"
-		echo "If that's not the case, just ignore this and leave the next field blank"
-		read -p "External IP: " -e USEREXTERNALIP
-		if [[ "$USEREXTERNALIP" != "" ]]; then
-			IP=$USEREXTERNALIP
-		fi
-	fi
-	# client-common.txt is created so we have a template to add further users later
-	echo "client
-dev tun
-proto $PROTOCOL
-sndbuf 0
-rcvbuf 0
-remote $IP $PORT
-resolv-retry infinite
-nobind
-persist-key
-persist-tun
-remote-cert-tls server
-cipher AES-256-CBC
-comp-lzo
-setenv opt block-outside-dns
-key-direction 1
-verb 3" > /etc/openvpn/client-common.txt
-	# Generates the custom client.ovpn
-	newclient "$CLIENT"
-	echo ""
-	echo "Finished!"
-	echo ""
-	echo "Your client configuration is available at" ~/"$CLIENT.ovpn"
-	echo "If you want to add more clients, you simply need to run this script again!"
-fi
